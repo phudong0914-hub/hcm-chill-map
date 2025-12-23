@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HCM Chill Spots - Bản Đồ Nhóm</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, sans-serif; }
+        #map { height: 100vh; width: 100%; }
+        
+        /* Bảng điều khiển góc trên bên trái */
+        .info-panel {
+            position: absolute; top: 15px; left: 15px; z-index: 1000;
+            background: white; padding: 15px; border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15); width: 220px;
+        }
+        h2 { margin: 0 0 10px 0; font-size: 18px; color: #d81b60; text-align: center; }
+        .stats { background: #fce4ec; padding: 8px; border-radius: 8px; text-align: center; margin-bottom: 10px; font-weight: bold; color: #ad1457; }
+        
+        button { 
+            width: 100%; padding: 10px; border: none; border-radius: 6px; 
+            cursor: pointer; font-weight: bold; margin-bottom: 5px; transition: 0.3s; 
+        }
+        .btn-refresh { background: #1e88e5; color: white; }
+        .btn-heat { background: #fb8c00; color: white; }
+        
+        /* Định dạng các Icon trên bản đồ */
+        .custom-icon { 
+            display: flex; align-items: center; justify-content: center; 
+            border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.2); 
+        }
+        .bg-cafe { background-color: #6d4c41; color: white; } /* Màu nâu cafe */
+        .bg-food { background-color: #f4511e; color: white; } /* Màu đỏ đồ ăn */
+        
+        /* Giao diện Form nhập liệu */
+        .popup-form select, .popup-form input { 
+            width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; 
+            border-radius: 4px; box-sizing: border-box; 
+        }
+        .popup-form button { 
+            background: #43a047; color: white; width: 100%; border: none; 
+            padding: 10px; margin-top: 5px; border-radius: 4px; cursor: pointer; 
+        }
+    </style>
+</head>
+<body>
+
+<div class="info-panel">
+    <h2>HCM Chill Spots 🍕</h2>
+    <div class="stats">📍 <span id="counter">0</span> Địa điểm</div>
+    <button class="btn-refresh" onclick="loadData()"><i class="fa-solid fa-sync"></i> Làm mới bản đồ</button>
+    <button class="btn-heat" onclick="toggleHeatmap()"><i class="fa-solid fa-fire"></i> Xem vùng "Hot"</button>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+
+<script>
+    // Link Apps Script cá nhân của bạn
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxJkP7a03kBtTAkrDCuzaT6KT0ZIO5g6CMDZqoF1lf1UZO5G-22QLPnsPRAkoauseCHUg/exec";
+    
+    // Khởi tạo bản đồ tại TP.HCM
+    var map = L.map('map').setView([10.7769, 106.7009], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    var markersLayer = L.layerGroup().addTo(map);
+    var heatLayer = null;
+    var allData = [];
+
+    // Hàm chọn biểu tượng tương ứng với loại địa điểm (Cafe hoặc Đồ ăn)
+    function getIcon(category) {
+        let iconHtml = category === 'cafe' ? '<i class="fa-solid fa-mug-hot"></i>' : '<i class="fa-solid fa-utensils"></i>';
+        let colorClass = category === 'cafe' ? 'bg-cafe' : 'bg-food';
+        return L.divIcon({
+            html: iconHtml,
+            className: `custom-icon ${colorClass}`,
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+        });
+    }
+
+    // Hàm tải dữ liệu từ Google Sheets
+    async function loadData() {
+        document.getElementById('counter').innerText = "...";
+        try {
+            const response = await fetch(SCRIPT_URL);
+            allData = await response.json();
+            renderMarkers();
+        } catch (e) { 
+            console.error(e);
+            alert("Lỗi tải dữ liệu! Hãy kiểm tra lại file Google Sheets."); 
+        }
+    }
+
+    // Hiển thị các điểm lên bản đồ
+    function renderMarkers() {
+        markersLayer.clearLayers();
+        allData.forEach(p => {
+            // p[0]:lat, p[1]:lng, p[2]:note, p[3]:category
+            L.marker([p[0], p[1]], { icon: getIcon(p[3]) })
+             .addTo(markersLayer)
+             .bindPopup(`<b>${p[3] === 'cafe' ? '☕ Cà phê' : '🍴 Đồ ăn'}</b><br>${p[2]}`);
+        });
+        document.getElementById('counter').innerText = allData.length;
+    }
+
+    // Sự kiện click để thêm địa điểm mới
+    map.on('click', function(e) {
+        var container = L.DomUtil.create('div', 'popup-form');
+        container.innerHTML = `
+            <b>Thêm điểm "chill" mới:</b>
+            <select id="catInput">
+                <option value="cafe">☕ Quán Cà phê / Chill</option>
+                <option value="food">🍴 Quán Ăn / Nhậu</option>
+            </select>
+            <input type="text" id="noteInput" placeholder="Tên quán & cảm nhận...">
+            <button id="saveBtn">Lưu lên bản đồ chung</button>
+        `;
+        L.popup().setLatLng(e.latlng).setContent(container).openOn(map);
+
+        L.DomEvent.on(container.querySelector('#saveBtn'), 'click', async function() {
+            let note = container.querySelector('#noteInput').value;
+            let cat = container.querySelector('#catInput').value;
+            if(!note) return alert("Nhập tên quán bạn nhé!");
+
+            container.querySelector('#saveBtn').innerText = "Đang lưu...";
+            container.querySelector('#saveBtn').disabled = true;
+
+            try {
+                // Gửi dữ liệu tới Google Apps Script
+                await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors', 
+                    body: JSON.stringify({ lat: e.latlng.lat, lng: e.latlng.lng, note: note, category: cat })
+                });
+                
+                // Đợi 1 giây để Google Sheets cập nhật rồi tải lại dữ liệu
+                setTimeout(() => {
+                    map.closePopup();
+                    loadData();
+                }, 1500);
+            } catch (err) {
+                alert("Lỗi khi gửi dữ liệu!");
+                container.querySelector('#saveBtn').innerText = "Lưu lại";
+                container.querySelector('#saveBtn').disabled = false;
+            }
+        });
+    });
+
+    // Hàm bật/tắt bản đồ nhiệt
+    function toggleHeatmap() {
+        if (heatLayer) { 
+            map.removeLayer(heatLayer); 
+            heatLayer = null; 
+        } else { 
+            let heatData = allData.map(p => [p[0], p[1], 0.5]);
+            heatLayer = L.heatLayer(heatData, {radius: 25, blur: 15}).addTo(map); 
+        }
+    }
+
+    // Tải dữ liệu ngay khi mở ứng dụng
+    loadData();
+</script>
+
+</body>
+</html>
